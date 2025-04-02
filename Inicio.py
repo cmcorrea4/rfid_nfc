@@ -1,14 +1,13 @@
-import streamlit as st
-import paho.mqtt.client as mqtt
-import json
+import paho.mqtt.client as paho
 import time
+import streamlit as st
+import json
 from datetime import datetime
-import threading
 
 # Configuración fija del broker MQTT
-MQTT_BROKER = "broker.mqttdashboard.com"
-MQTT_PORT = 1883
-MQTT_TOPIC = "rfid/tags"
+BROKER = "broker.mqttdashboard.com"
+PORT = 1883
+TOPIC = "rfid/tags"
 
 # Configuración de la página
 st.set_page_config(
@@ -20,28 +19,19 @@ st.set_page_config(
 # Inicialización de variables de estado de la sesión
 if 'tags_data' not in st.session_state:
     st.session_state.tags_data = []
-if 'connected' not in st.session_state:
-    st.session_state.connected = False
-if 'client' not in st.session_state:
-    st.session_state.client = None
 if 'tag_count' not in st.session_state:
     st.session_state.tag_count = 0
 if 'unique_tags' not in st.session_state:
     st.session_state.unique_tags = set()
 if 'last_update' not in st.session_state:
     st.session_state.last_update = "No hay actualizaciones"
+if 'message_received' not in st.session_state:
+    st.session_state.message_received = ""
 
-# Funciones para MQTT
-def on_connect(client, userdata, flags, rc):
-    if rc == 0:
-        st.session_state.connected = True
-        client.subscribe(MQTT_TOPIC)
-    else:
-        st.session_state.connected = False
-
-def on_message(client, userdata, msg):
+# Función para manejar los mensajes recibidos
+def on_message(client, userdata, message):
     try:
-        payload = msg.payload.decode("utf-8")
+        payload = message.payload.decode("utf-8")
         data = json.loads(payload)
         
         # Añadir timestamp más amigable
@@ -50,47 +40,86 @@ def on_message(client, userdata, msg):
         
         # Actualizar estadísticas
         st.session_state.tag_count += 1
-        st.session_state.unique_tags.add(data["tag_id"])
+        if "tag_id" in data:
+            st.session_state.unique_tags.add(data["tag_id"])
         
         # Actualizar último mensaje
         st.session_state.last_update = local_time
         
         # Añadir a los datos
         st.session_state.tags_data.append(data)
+        
+        # Guardar mensaje para mostrar
+        st.session_state.message_received = json.dumps(data, indent=2)
+        
     except Exception as e:
-        st.error(f"Error al procesar el mensaje: {e}")
+        st.session_state.message_received = f"Error al procesar el mensaje: {e}"
 
-def connect_mqtt():
+def subscribe_mqtt():
     try:
-        client = mqtt.Client()
-        client.on_connect = on_connect
+        # Crear un nuevo cliente para suscripción
+        client = paho.Client("Streamlit-Sub")
         client.on_message = on_message
-        client.connect(MQTT_BROKER, MQTT_PORT, 60)
-        st.session_state.client = client
-        # Iniciar el loop en un hilo separado
-        mqtt_thread = threading.Thread(target=client.loop_forever)
-        mqtt_thread.daemon = True
-        mqtt_thread.start()
-        return True
+        client.connect(BROKER, PORT)
+        client.subscribe(TOPIC)
+        
+        # Iniciar un ciclo no bloqueante (procesará mensajes por un tiempo limitado)
+        client.loop_start()
+        time.sleep(2)  # Esperar 2 segundos para recibir mensajes
+        client.loop_stop()
+        
+        return "Suscripción completada - Esperando mensajes..."
     except Exception as e:
-        st.error(f"Error al conectar: {e}")
-        return False
+        return f"Error al conectar: {e}"
 
-# Conexión automática al inicio
-if not st.session_state.connected and st.session_state.client is None:
-    connect_mqtt()
+def publish_test_message():
+    try:
+        # Crear un nuevo cliente para publicación
+        client = paho.Client("Streamlit-Pub")
+        client.connect(BROKER, PORT)
+        
+        # Crear mensaje de prueba
+        test_message = {
+            "tag_id": "TEST_TAG_123",
+            "tipo": "RFID",
+            "timestamp": int(time.time() * 1000)
+        }
+        
+        # Publicar mensaje
+        result = client.publish(TOPIC, json.dumps(test_message))
+        client.disconnect()
+        
+        if result.rc == 0:
+            return "Mensaje de prueba enviado correctamente"
+        else:
+            return f"Error al enviar mensaje: Código {result.rc}"
+    except Exception as e:
+        return f"Error al publicar: {e}"
 
 # Contenido principal
 st.title("Monitor RFID/NFC")
-st.write(f"Conectado a: {MQTT_BROKER} en tema: {MQTT_TOPIC}")
+st.write(f"Broker MQTT: {BROKER}:{PORT} | Tema: {TOPIC}")
 
-# Estado de conexión
-if st.session_state.connected:
-    st.success("Conectado al broker MQTT")
-else:
-    st.error("Desconectado del broker MQTT")
-    if st.button("Conectar"):
-        connect_mqtt()
+# Botones para acciones MQTT
+col1, col2, col3 = st.columns(3)
+with col1:
+    if st.button("Suscribirse a mensajes"):
+        status = subscribe_mqtt()
+        st.info(status)
+
+with col2:
+    if st.button("Enviar mensaje de prueba"):
+        status = publish_test_message()
+        st.info(status)
+
+with col3:
+    if st.button("Limpiar datos"):
+        st.session_state.tags_data = []
+        st.session_state.tag_count = 0
+        st.session_state.unique_tags = set()
+        st.session_state.last_update = "No hay actualizaciones"
+        st.session_state.message_received = ""
+        st.success("Datos limpiados")
 
 # Métricas principales
 col1, col2, col3 = st.columns(3)
@@ -101,12 +130,10 @@ with col2:
 with col3:
     st.metric("Última Actualización", st.session_state.last_update)
 
-# Botón para limpiar datos
-if st.button("Limpiar datos"):
-    st.session_state.tags_data = []
-    st.session_state.tag_count = 0
-    st.session_state.unique_tags = set()
-    st.session_state.last_update = "No hay actualizaciones"
+# Mostrar último mensaje recibido
+if st.session_state.message_received:
+    st.subheader("Último mensaje recibido")
+    st.code(st.session_state.message_received)
 
 # Tabla de lecturas recientes
 st.subheader("Lecturas Recientes")
@@ -129,7 +156,7 @@ if st.session_state.tags_data:
     for tag in reversed(st.session_state.tags_data[-10:]):
         col1, col2, col3, col4 = st.columns([3, 2, 3, 3])
         with col1:
-            st.write(tag["tag_id"])
+            st.write(tag.get("tag_id", "N/A"))
         with col2:
             st.write(tag.get("tipo", "RFID"))
         with col3:
@@ -137,9 +164,10 @@ if st.session_state.tags_data:
         with col4:
             st.write(tag.get("nfc_data", "N/A") if "nfc_data" in tag else "N/A")
 else:
-    st.info("No hay lecturas registradas todavía. Esperando datos desde el ESP32...")
+    st.info("No hay lecturas registradas todavía. Haz clic en 'Suscribirse a mensajes' para recibir datos.")
 
-# Actualización automática
-if st.session_state.connected:
-    time.sleep(1)  # Pequeña pausa para no sobrecargar la interfaz
+# Suscribirse automáticamente cada cierto tiempo
+if st.checkbox("Actualización automática", value=False):
+    subscribe_mqtt()
+    time.sleep(5)  # Esperar 5 segundos
     st.experimental_rerun()
