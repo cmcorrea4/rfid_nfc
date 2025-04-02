@@ -12,7 +12,7 @@ if 'messages' not in st.session_state:
 
 def on_message(client, userdata, message):
     global message_received
-    time.sleep(1)
+    time.sleep(3)
     message_received = str(message.payload.decode("utf-8"))
     
 broker = "157.230.214.127"
