@@ -59,4 +59,8 @@ if st.button('Limpiar Mensajes'):
 st.subheader("Historial de mensajes")
 if st.session_state.messages:
     st.write(f"Total de mensajes: {len(st.session_state.messages)}")
-    for i,
+    for i, msg in enumerate(st.session_state.messages):
+        st.write(f"Mensaje #{i+1}:")
+        st.code(msg)
+else:
+    st.write("No hay mensajes en el historial")
