@@ -4,7 +4,7 @@ import json
 import time
 
 # Configuración fija
-BROKER = "broker.mqttdashboard.com"
+BROKER = "157.230.214.127"
 PORT = 1883
 TOPIC = "rfid/tags"
 
