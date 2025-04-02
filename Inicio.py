@@ -55,71 +55,50 @@ def on_message(client, userdata, message):
     except Exception as e:
         st.session_state.message_received = f"Error al procesar el mensaje: {e}"
 
-def subscribe_mqtt():
+def connect_and_read():
     try:
         # Crear un nuevo cliente para suscripción
-        client = paho.Client("Streamlit-Sub")
+        client = paho.Client("Streamlit-Reader")
         client.on_message = on_message
         client.connect(BROKER, PORT)
         client.subscribe(TOPIC)
         
         # Iniciar un ciclo no bloqueante (procesará mensajes por un tiempo limitado)
         client.loop_start()
-        time.sleep(2)  # Esperar 2 segundos para recibir mensajes
-        client.loop_stop()
         
-        return "Suscripción completada - Esperando mensajes..."
+        # Mostrar mensaje de espera
+        with st.spinner('Escuchando mensajes MQTT durante 5 segundos...'):
+            time.sleep(5)  # Esperar 5 segundos para recibir mensajes
+        
+        client.loop_stop()
+        client.disconnect()
+        
+        return "Lectura de mensajes completada"
     except Exception as e:
         return f"Error al conectar: {e}"
 
-def publish_test_message():
-    try:
-        # Crear un nuevo cliente para publicación
-        client = paho.Client("Streamlit-Pub")
-        client.connect(BROKER, PORT)
-        
-        # Crear mensaje de prueba
-        test_message = {
-            "tag_id": "TEST_TAG_123",
-            "tipo": "RFID",
-            "timestamp": int(time.time() * 1000)
-        }
-        
-        # Publicar mensaje
-        result = client.publish(TOPIC, json.dumps(test_message))
-        client.disconnect()
-        
-        if result.rc == 0:
-            return "Mensaje de prueba enviado correctamente"
-        else:
-            return f"Error al enviar mensaje: Código {result.rc}"
-    except Exception as e:
-        return f"Error al publicar: {e}"
+def clear_data():
+    st.session_state.tags_data = []
+    st.session_state.tag_count = 0
+    st.session_state.unique_tags = set()
+    st.session_state.last_update = "No hay actualizaciones"
+    st.session_state.message_received = ""
+    return "Datos limpiados"
 
 # Contenido principal
 st.title("Monitor RFID/NFC")
 st.write(f"Broker MQTT: {BROKER}:{PORT} | Tema: {TOPIC}")
 
-# Botones para acciones MQTT
-col1, col2, col3 = st.columns(3)
+# Botones principales
+col1, col2 = st.columns(2)
 with col1:
-    if st.button("Suscribirse a mensajes"):
-        status = subscribe_mqtt()
-        st.info(status)
+    if st.button("👂 Conectar y Leer Mensajes MQTT", key="connect_button"):
+        status = connect_and_read()
+        st.success(status)
 
 with col2:
-    if st.button("Enviar mensaje de prueba"):
-        status = publish_test_message()
-        st.info(status)
-
-with col3:
-    if st.button("Limpiar datos"):
-        st.session_state.tags_data = []
-        st.session_state.tag_count = 0
-        st.session_state.unique_tags = set()
-        st.session_state.last_update = "No hay actualizaciones"
-        st.session_state.message_received = ""
-        st.success("Datos limpiados")
+    if st.button("🗑️ Limpiar Datos", key="clear_button", on_click=clear_data):
+        pass  # La acción se maneja en la función on_click
 
 # Métricas principales
 col1, col2, col3 = st.columns(3)
@@ -164,10 +143,13 @@ if st.session_state.tags_data:
         with col4:
             st.write(tag.get("nfc_data", "N/A") if "nfc_data" in tag else "N/A")
 else:
-    st.info("No hay lecturas registradas todavía. Haz clic en 'Suscribirse a mensajes' para recibir datos.")
+    st.info("No hay lecturas registradas todavía. Haz clic en 'Conectar y Leer Mensajes MQTT' para recibir datos.")
 
-# Suscribirse automáticamente cada cierto tiempo
-if st.checkbox("Actualización automática", value=False):
-    subscribe_mqtt()
-    time.sleep(5)  # Esperar 5 segundos
-    st.experimental_rerun()
+# Instrucciones de uso
+st.markdown("""
+---
+### Instrucciones de uso:
+1. Haz clic en el botón "Conectar y Leer Mensajes MQTT" cada vez que quieras recibir nuevos datos
+2. La aplicación escuchará durante 5 segundos y mostrará cualquier mensaje recibido
+3. Si deseas borrar todos los datos acumulados, haz clic en "Limpiar Datos"
+""")
