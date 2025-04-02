@@ -15,7 +15,7 @@ def on_message(client, userdata, message):
     time.sleep(1)
     message_received = str(message.payload.decode("utf-8"))
     
-broker = "broker.mqttdashboard.com"
+broker = "157.230.214.127"
 port = 1883
 topic = "rfid/tags"
 
